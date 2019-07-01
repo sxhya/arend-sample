@@ -1,0 +1,106 @@
+\import Data.Or
+\import Equiv
+\import HLevel
+\import Logic
+\import Order.LinearOrder
+\import Order.StrictOrder
+\import Paths
+
+-- | analogue of trichotomy of LinearOrder.Dec but defined for the Set universe
+\func set-trichotomy {A : StrictPoset} (x y : A) => ((x = y) `Or` (x < y)) `Or` (y < x)
+
+-- | proof that set-trichotomy still belongs to the universe \Prop despite being originally defined as belonging to \Set
+\func set-trichotomy-isProp {A : StrictPoset} (x y : A) : isProp (set-trichotomy x y) => \lam t1 t2 =>
+    \case t1 \as t1, t2 \as t2 \return t1 = t2 \with {
+      | inl (inl l), inl (inl r) => pmap (\lam z => inl (inl z)) (Path.inProp l r)
+      | inl (inr l), inl (inr r) => pmap (\lam z => inl (inr z)) (Path.inProp l r)
+      | inr l,       inr r       => pmap inr (Path.inProp l r)
+      | inl (inl l), inl (inr r) => absurd (eq-lt-false l r)
+      | inl (inr l), inl (inl r) => absurd (eq-lt-false r l)
+      | inl (inl l), inr r       => absurd (eq-lt-false (inv l) r)
+      | inr l,       inl (inl r) => absurd (eq-lt-false (inv r) l)
+      | inl (inr l), inr r       => absurd (lt-gt-false l r)
+      | inr l,       inl (inr r) => absurd (lt-gt-false r l)
+    } \where {
+  \func eq-lt-false {A : StrictPoset} {x y : A} (eq : x = y) (lt : x < y) : Empty =>
+    A.<-irreflexive x (transport (x <) (inv eq) lt)
+
+  \func lt-gt-false {A : StrictPoset} {x y : A} (lt : x < y) (gt : y < x) : Empty =>
+    A.<-irreflexive x (A.<-transitive _ _ _ lt gt)
+}
+
+-- | proof that set-trichotomy holds for decidable linear orders
+\func set-trichotomy-property {A : LinearOrder.Dec} (x y : A) : set-trichotomy x y =>
+  \case A.trichotomy x y \return \level (set-trichotomy x y) (set-trichotomy-isProp x y) \with {
+    | byLeft x=y => inl (inl x=y)
+    | byRight (byLeft x<y) => inl (inr x<y)
+    | byRight (byRight y<x) => inr (y<x)
+  }
+
+-- | function which converts nontruncated sum types to truncated ones
+\func Or-to-|| {A B : \Prop} (a-or-b : A `Or` B) : A || B => \case a-or-b \with {
+  | inl a => byLeft a
+  | inr b => byRight b
+}
+
+\data List (A : \Set)
+  | nil
+  | \infixr 5 :-: A (List A)
+
+-- | predicate meaning "xs is sorted"
+\data Sorted {A : LinearOrder.Dec} (xs : List A) : \Prop \elim xs
+  | nil => nilSorted
+  | :-: x nil => singletonSorted
+  | :-: x1 (:-: x2 xs') => consSorted ((x1 = x2) || (x1 < x2)) (Sorted (x2 :-: xs'))
+
+-- | implementation of sorted lists as pairs
+\func SortedList (A : LinearOrder.Dec) => \Sigma (l : List A) (Sorted l)
+
+-- | proof of equality of sorted lists
+\func sorted-equality {A : LinearOrder.Dec} (l1 l2 : SortedList A) (P : l1.1 = l2.1) : l1 = l2 =>
+  SigmaExt Sorted l1 l2 P (Path.inProp {Sorted l2.1} _ _)
+
+-- | "InsertSpec xs a ys" means "ys" is obtained from "xs" by inserting "a" at some place
+\truncated \data InsertSpec {A : \Set} (xs : List A) (a : A) (ys : List A) : \Prop \elim xs, ys
+  | xs, :-: y ys => insertedHere (a = y) (xs = ys)
+  | :-: x xs, :-: y ys => insertedThere (x = y) (InsertSpec xs a ys)
+
+-- | specification of a permutation
+\truncated \data Perm {A : \Set} (xs ys : List A) : \Prop
+  | permInsert {xs' ys' : List A} {x : A} (Perm xs' ys') (InsertSpec xs' x xs) (InsertSpec ys' x ys)
+  | permTrivial (xs = ys)
+
+\func Perm-symmetric {A : \Set} {xs ys : List A} (P : Perm xs ys) : Perm ys xs \elim P
+  | permTrivial xs=ys => permTrivial (inv xs=ys)
+  | permInsert perm-xs'-ys' xs-spec ys-spec => permInsert (Perm-symmetric perm-xs'-ys') ys-spec xs-spec
+
+\func Perm-transitive {A : \Set} (xs ys zs : List A) (P1 : Perm xs ys) (P2 : Perm ys zs) : Perm xs zs => {?}
+
+\func tail-sorted {O : LinearOrder.Dec} (x : O) (xs : List O) (A : Sorted (x :-: xs)) : Sorted xs \elim xs, A
+  | nil, _ => nilSorted
+  | :-: _ _, consSorted _ xs-sorted => xs-sorted
+
+\func insert {O : LinearOrder.Dec} (xs : SortedList O) (y : O) :
+  \Sigma (ys : SortedList O) (InsertSpec xs.1 y ys.1) \elim xs
+  | (nil, _) => ((y :-: nil, singletonSorted), insertedHere idp idp)
+  | (:-: x xs', xs-sorted) => \case set-trichotomy-property x y \with {
+    | inr y<x => ((y :-: x :-: xs', consSorted (byRight y<x) xs-sorted), insertedHere idp idp)
+    | inl x<=y =>
+      \let ((result, result-sorted), result-spec) => insert (xs', tail-sorted x xs' xs-sorted) y
+      \in ((x :-: result,
+            \case result \as result, xs' \as xs', xs-sorted : Sorted (x :-: xs'),
+                  result-spec : InsertSpec xs' y result, result-sorted : Sorted result
+            \return Sorted (x :-: result) \with {
+              | nil,_ , _, _ , _ => singletonSorted
+              | :-: r rs, _, _, insertedHere y=r _, result-sorted =>
+                consSorted (transport (\lam z => (x = z) || (x < z)) y=r (Or-to-|| x<=y)) result-sorted
+              | :-: r rs, :-: x' _, consSorted x<=x' _, insertedThere x2=r _, result-sorted =>
+                consSorted (transport (\lam z => (x = z) || (x < z)) x2=r x<=x') result-sorted
+            }), insertedThere idp result-spec)
+  }
+
+\func insertSort {O : LinearOrder.Dec} (xs : List O) : \Sigma (result : SortedList O) (Perm xs result.1) \elim xs
+  | nil => ((nil, nilSorted), permTrivial idp)
+  | :-: x xs' => \let | (ys, perm-xs'-ys) => insertSort xs'
+                      | (zs, zs-spec) => insert ys x
+                 \in (zs, permInsert perm-xs'-ys (insertedHere idp idp) zs-spec)
