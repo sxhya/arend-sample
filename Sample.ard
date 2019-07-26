@@ -58,7 +58,7 @@
 
 -- | proof of equality of sorted lists
 \func sorted-equality {A : LinearOrder.Dec} (l1 l2 : SortedList A) (P : l1.1 = l2.1) : l1 = l2 =>
-  SigmaExt Sorted l1 l2 P (Path.inProp {Sorted l2.1} _ _)
+  SigmaPropExt Sorted l1 l2 P
 
 -- | "InsertSpec xs a ys" means "ys" is obtained from "xs" by inserting "a" at some place
 \truncated \data InsertSpec {A : \Set} (xs : List A) (a : A) (ys : List A) : \Prop \elim xs, ys
